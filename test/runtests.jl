@@ -56,6 +56,17 @@ two_way_test_vectors = [
     UInt8[] => hex2bytes("40"),
     hex2bytes("01020304") => hex2bytes("4401020304"),
 
+    # adapted from RFC 8949 § 3.1.1
+    permutedims(UInt16[2 4 8; 4 16 256], (2,1)) => hex2bytes("d9041082820302d8454c020004000800040010000001"),
+
+    UInt16[2, 4, 8, 4, 16, 256] => hex2bytes("d8454c020004000800040010000001"),
+    Float32[2.5, 0x0001p16, 0x0002p1] => hex2bytes("d8554c000020400000804700008040"),
+    Int32[2, 4, -8] => hex2bytes("d84e4c0200000004000000f8ffffff"),
+    Int8[1, 2, 4] => hex2bytes("d84843010204"),
+
+    reshape(Int8[1, 2, 4, 8, 16, 13], (2,3)) => hex2bytes("d9041082820203d8484601020408100d"),
+    reshape(Int8[1, 2, 4, 8, 16, 13], (3,2)) => hex2bytes("d9041082820302d8484601020408100d"),
+
     "" => hex2bytes("60"),
     "a" => hex2bytes("6161"),
     "IETF" => hex2bytes("6449455446"),
@@ -95,7 +106,7 @@ function cbor_equal(a::AbstractDict, b::AbstractDict)
 end
 
 #=
-The problem is, we want to preserver Julia types for non Base types that directly
+The problem is, we want to preserve Julia types for non Base types that directly
 map to basic CBOR protocol types. So we can't define encode(io::IO, x::AbstractDict)
 since that would mean we can't preserver the type of any custom dict type.
 But, since the CBOR protocol is expecting ordered dicts, Julia's default dict type

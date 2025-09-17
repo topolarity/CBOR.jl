@@ -174,13 +174,43 @@ function decode_internal(io::IO, ::Val{TYPE_6})
         return big_int
     end
 
-    if tag == CUSTOM_LANGUAGE_TYPE # Type Tag
+    if tag == CUSTOM_LANGUAGE_TYPE_TAG # Type Tag
         name = data[1]
         object_serialized = data[2]
         if startswith(name, "Julia/") # Julia Type
             return deserialize(IOBuffer(object_serialized))
         end
+    elseif tag == MULTIDIM_ARRAY_ROW_MAJOR_TAG
+        (dims, array) = data
+        dims = (dims...,)
+        return permutedims(reshape(array, reverse(dims)), reverse(1:length(dims)))
+    elseif tag == HOMOGENEOUS_ARRAY_TAG
+        return data
+    elseif tag == MULTIDIM_ARRAY_COLUMN_MAJOR_TAG
+        (dims, array) = data
+        dims = (dims...,)
+        return collect(reshape(array, dims))
+    elseif TYPED_ARRAY_TAG_BEGIN ≤ tag ≤ TYPED_ARRAY_TAG_END # RFC 8746
+        size_class = (tag & 0x3) + 1
+        is_float = tag & 0x10 != 0
+        is_signed_int = tag & 0x08 != 0
+        is_little_endian = tag & 0x04 != 0
+        data::Vector{UInt8}
+        T = if is_float
+            size_class == 4 && error("Float128 not yet supported")
+            (Float16,Float32,Float64)[size_class]
+        elseif is_signed_int
+            (Int8,Int16,Int32,Int64)[size_class]
+        else
+            (UInt8,UInt16,UInt32,UInt64)[size_class]
+        end
+        array = reinterpret(T, data)
+        if !is_little_endian && (is_float || size_class != 0)
+            array .= Base.bswap_int.(array)
+        end
+        return collect(array)
     end
+
     # TODO implement other common tags!
     return Tag(tag, data)
 end

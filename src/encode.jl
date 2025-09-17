@@ -91,6 +91,52 @@ function encode(io::IO, byte_string::Vector{UInt8})
     write(io, byte_string)
 end
 
+for T in (
+    #= UInt8 is implemented by 'byte string' encoding =#
+    UInt16, UInt32, UInt64,
+    Int8, Int16, Int32, Int64,
+    Float16, Float32, Float64,
+)
+    @eval function encode(io::IO, array::Vector{$T})
+        tag = CBOR_TYPED_ARRAY | $(
+            if Core.sizeof(T) > 1
+                CBOR_TYPED_ARRAY_LITTLE_ENDIAN
+            else
+                UInt8(0) # reserved value for UInt8 / Int8
+            end
+        ) | $(
+            if T <: Signed
+                CBOR_TYPED_ARRAY_SIGNED_INT
+            elseif T <: AbstractFloat
+                CBOR_TYPED_ARRAY_FLOAT
+            elseif T <: Unsigned
+                UInt8(0)
+            else @assert false "unexpected type $T" end
+        ) | $(
+            if T <: AbstractFloat
+                UInt8(Base.top_set_bit(Core.sizeof(T)) - 2)
+            else
+                UInt8(Base.top_set_bit(Core.sizeof(T)) - 1)
+            end
+        )
+        nbytes = length(array) * $(Core.sizeof(T))
+        encode_smallest_int(io, TYPE_6, UInt8(tag))
+        encode_smallest_int(io, TYPE_2, UInt(nbytes))
+        GC.@preserve array unsafe_write(io, pointer(array), nbytes)
+    end
+end
+
+function encode(io::IO, array::Array{T,N}) where {T,N}
+    @assert N != 1 "Unexpected Vector{...}"
+    encode_smallest_int(io, TYPE_6, UInt16(MULTIDIM_ARRAY_COLUMN_MAJOR_TAG))
+    encode_smallest_int(io, TYPE_4, UInt8(2))
+    encode_smallest_int(io, TYPE_4, UInt16(ndims(array)))
+    for dim in size(array)
+        encode_smallest_int(io, TYPE_0, unsigned(dim))
+    end
+    encode(io, reshape(array, length(array)))
+end
+
 function encode(io::IO, string::String)
     encode_length(io, TYPE_3, string)
     write(io, string)
@@ -234,7 +280,7 @@ function encode(io::IO, struct_type::T) where T
     encode(
         io,
         Tag(
-            CUSTOM_LANGUAGE_TYPE,
+            CUSTOM_LANGUAGE_TYPE_TAG,
             [string("Julia/", T), take!(tio), fields2array(struct_type)]
         )
     )
